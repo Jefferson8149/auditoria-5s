@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<meta name="theme-color" content="#0F0F13"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="5S VicPani"/>
+<title>Auditoria 5S – VicPani</title>
+<link rel="manifest" href="manifest.json"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
+  html,body{height:100%;background:#0F0F13;color:#fff;font-family:'Georgia',serif;overscroll-behavior:none}
+  #app{min-height:100vh}
+  input,textarea,select,button{font-family:'Georgia',serif}
+  select{-webkit-appearance:none;appearance:none}
+  textarea{resize:vertical}
+  ::-webkit-scrollbar{width:4px}
+  ::-webkit-scrollbar-track{background:#1A1A22}
+  ::-webkit-scrollbar-thumb{background:#3a3a48;border-radius:2px}
+  .screen{min-height:100vh;background:#0F0F13}
+  .fade-in{animation:fadeIn .2s ease}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  .btn-score{width:44px;height:44px;border-radius:10px;border:none;cursor:pointer;font-weight:bold;font-size:1rem;transition:all .12s;touch-action:manipulation}
+  .btn-score:active{transform:scale(0.93)!important}
+  .pill-btn{border:none;cursor:pointer;font-family:'Georgia',serif;transition:all .15s;touch-action:manipulation}
+  .pill-btn:active{opacity:.8}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// DATA / CONFIG
+// ═══════════════════════════════════════════════════════
+const DEFAULT_CONFIG = {
+  auditor: "MONIQUE",
+  sheetId: "",
+  penaltyPoints: 10,
+  lojas: ["GURILÂNDIA","RODOVIÁRIA","CHIQUINHA","DUQUE","CALÇADÃO","DESEMBARGADOR"],
+  sections: [
+    { id:"seiri", label:"SEIRI", subtitle:"Senso de Utilização", multiplier:5, color:"#E63946",
+      items:[
+        {id:"s1q1",text:"Existem muitos itens desnecessários? (√ se negativo)"},
+        {id:"s1q2",text:"Os itens desnecessários foram identificados e descartados?"},
+        {id:"s1q3",text:"Há indicadores visuais para facilitar o uso correto dos espaços?"},
+        {id:"s1q4",text:"Houve melhorias desde a última avaliação?"}
+      ]},
+    { id:"seiton", label:"SEITON", subtitle:"Senso de Organização", multiplier:5, color:"#F4A261",
+      items:[
+        {id:"s2q1",text:"O ambiente está visivelmente desorganizado? (√ se negativo)"},
+        {id:"s2q2",text:"Todos os materiais estão organizados em locais específicos?"},
+        {id:"s2q3",text:"Os materiais essenciais estão armazenados próximos ao local de uso/com identificação?"},
+        {id:"s2q4",text:"Houve melhorias desde a última avaliação?"}
+      ]},
+    { id:"seiso", label:"SEISO", subtitle:"Senso de Limpeza", multiplier:6, color:"#2A9D8F",
+      items:[
+        {id:"s3q1",text:"O ambiente/uniforme está notavelmente sem cuidado com limpeza? (√ se negativo)"},
+        {id:"s3q2",text:"O ambiente/instrumentos/uniformes estão parcialmente limpos e livres de sujeira?"},
+        {id:"s3q3",text:"O ambiente/instrumentos/uniformes estão limpos e livres de sujeira?"},
+        {id:"s3q4",text:"O plano de limpeza e asseio pessoal é seguido regularmente por toda a equipe?"},
+        {id:"s3q5",text:"Houve melhorias desde a última avaliação?"}
+      ]},
+    { id:"seiketsu", label:"SEIKETSU", subtitle:"Senso de Normatização", multiplier:5, color:"#457B9D",
+      items:[
+        {id:"s4q1",text:"Percebe-se que não há padrões bem definidos? (√ se negativo)"},
+        {id:"s4q2",text:"Há padrões definidos e visíveis para organização e limpeza?"},
+        {id:"s4q3",text:"Os responsáveis por cada área conhecem suas atribuições?"},
+        {id:"s4q4",text:"Houve melhorias desde a última avaliação?"}
+      ]},
+    { id:"shitsuke", label:"SHITSUKE", subtitle:"Senso de Autodisciplina", multiplier:3, color:"#6A0572",
+      items:[
+        {id:"s5q1",text:"A equipe está engajada em manter as práticas do 5S?"},
+        {id:"s5q2",text:"Há treinamentos/lembretes frequentes para reforçar o 5S?"},
+        {id:"s5q3",text:"Houve reforço/treinamento/melhorias desde a última avaliação?"}
+      ]}
+  ]
+};
+
+// ═══════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════
+let STATE = {
+  screen: "loading", // loading | audit | result | history | config
+  config: null,
+  history: [],
+  loja: "",
+  scores: {},
+  reincidencia: false,
+  observacoes: "",
+  saving: false,
+  result: null,
+  configTab: "geral",
+  cfgDraft: null,
+  cfgSaved: false,
+};
+
+// ═══════════════════════════════════════════════════════
+// STORAGE (localStorage for PWA)
+// ═══════════════════════════════════════════════════════
+const store = {
+  get(key){ try{ return JSON.parse(localStorage.getItem(key)); } catch{ return null; } },
+  set(key,val){ try{ localStorage.setItem(key, JSON.stringify(val)); } catch{} }
+};
+
+// ═══════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════
+const p2 = n => String(n).padStart(2,"0");
+const fmtTs = d => `${p2(d.getDate())}/${p2(d.getMonth()+1)}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+const calcMax = secs => secs.reduce((a,s) => a + s.items.length * s.multiplier, 0);
+const getGrade = (pts, max) => {
+  const pct = max > 0 ? pts/max : 0;
+  const p = Math.round(pct*100);
+  if(pct>=.90) return {label:"EXCELENTE",color:"#2A9D8F",pct:p};
+  if(pct>=.70) return {label:"BOM",color:"#457B9D",pct:p};
+  if(pct>=.50) return {label:"REGULAR",color:"#F4A261",pct:p};
+  return {label:"CRÍTICO",color:"#E63946",pct:p};
+};
+const secTotal = (sec, scores) => sec.items.reduce((a,item) => a + (scores[item.id]??0)*sec.multiplier, 0);
+const totalBruto = (secs, scores) => secs.reduce((a,s) => a + secTotal(s,scores), 0);
+const notaFinal = (secs, scores, reinc, penalty) => {
+  const b = totalBruto(secs, scores);
+  return Math.max(0, reinc ? b - penalty : b);
+};
+const e = (tag, attrs={}, ...children) => {
+  const el = document.createElement(tag);
+  Object.entries(attrs).forEach(([k,v]) => {
+    if(k==="style" && typeof v==="object") Object.assign(el.style, v);
+    else if(k.startsWith("on")) el.addEventListener(k.slice(2).toLowerCase(), v);
+    else el.setAttribute(k,v);
+  });
+  children.flat().forEach(c => {
+    if(c==null||c===false) return;
+    el.appendChild(typeof c==="string" ? document.createTextNode(c) : c);
+  });
+  return el;
+};
+const input = (attrs={}) => {
+  const el = document.createElement("input");
+  Object.entries(attrs).forEach(([k,v]) => {
+    if(k==="style"&&typeof v==="object") Object.assign(el.style,v);
+    else if(k==="value") el.value=v;
+    else if(k.startsWith("on")) el.addEventListener(k.slice(2).toLowerCase(),v);
+    else el.setAttribute(k,v);
+  });
+  return el;
+};
+
+const S = (obj) => Object.entries(obj).map(([k,v])=>`${k.replace(/([A-Z])/g,'-$1').toLowerCase()}:${v}`).join(';');
+
+// ═══════════════════════════════════════════════════════
+// RENDER ENGINE
+// ═══════════════════════════════════════════════════════
+function render() {
+  const app = document.getElementById("app");
+  app.innerHTML = "";
+  const scr = buildScreen();
+  app.appendChild(scr);
+}
+
+function setState(updates, skipRender=false) {
+  Object.assign(STATE, updates);
+  if(!skipRender) render();
+}
+
+// ═══════════════════════════════════════════════════════
+// SCREENS ROUTER
+// ═══════════════════════════════════════════════════════
+function buildScreen(){
+  switch(STATE.screen){
+    case "loading":  return buildLoading();
+    case "audit":    return buildAudit();
+    case "result":   return buildResult();
+    case "history":  return buildHistory();
+    case "config":   return buildConfig();
+  }
+}
+
+// ─── LOADING ────────────────────────────────────────────
+function buildLoading(){
+  const d = e("div",{style:{minHeight:"100vh",background:"#0F0F13",display:"flex",alignItems:"center",justifyContent:"center",color:"#555",fontSize:"0.9rem"}}, "Carregando...");
+  return d;
+}
+
+// ─── AUDIT SCREEN ───────────────────────────────────────
+function buildAudit(){
+  const cfg = STATE.config;
+  const secs = cfg.sections;
+  const MAX = calcMax(secs);
+  const sc = STATE.scores;
+  const nota = notaFinal(secs, sc, STATE.reincidencia, cfg.penaltyPoints);
+  const grade = getGrade(nota, MAX);
+  const totalItens = secs.reduce((a,s)=>a+s.items.length,0);
+  const totalResp = Object.keys(sc).length;
+
+  const wrap = e("div",{class:"screen fade-in"});
+
+  // ── Header
+  const hdr = e("div",{style:{background:"linear-gradient(135deg,#1A1A22,#12121a)",borderBottom:"1px solid #2a2a35",padding:"1.1rem 1.25rem 1rem"}});
+  const hdrInner = e("div",{style:{maxWidth:"680px",margin:"0 auto"}});
+
+  const topRow = e("div",{style:{display:"flex",alignItems:"center",gap:"0.75rem",marginBottom:"1rem"}});
+  const bar = e("div",{style:{width:"7px",height:"32px",background:"linear-gradient(180deg,#E63946,#6A0572)",borderRadius:"4px"}});
+  const titleBox = e("div",{style:{flex:"1"}});
+  titleBox.appendChild(e("div",{style:{fontSize:"0.6rem",color:"#888",letterSpacing:"0.2em"}},"VICPANI · AUDITORA: "+cfg.auditor));
+  titleBox.appendChild(e("h1",{style:{margin:"0",fontSize:"1.25rem",letterSpacing:"0.06em"}},"Auditoria 5S"));
+
+  const btnHist = e("button",{style:{background:"#2A2A35",border:"none",color:"#aaa",cursor:"pointer",borderRadius:"8px",width:"36px",height:"36px",fontSize:"1rem",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>setState({screen:"history"})},"📋");
+  const btnCfg  = e("button",{style:{background:"#2A2A35",border:"none",color:"#aaa",cursor:"pointer",borderRadius:"8px",width:"36px",height:"36px",fontSize:"1rem",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>setState({screen:"config",cfgDraft:JSON.parse(JSON.stringify(cfg)),configTab:"geral"})},"⚙️");
+
+  topRow.append(bar,titleBox,btnHist,btnCfg);
+
+  // Loja select
+  const lojaLabel = e("label",{style:{fontSize:"0.6rem",color:"#888",letterSpacing:"0.15em",display:"block",marginBottom:"0.35rem"}},"SELECIONE A LOJA");
+  const selectWrap = e("div",{style:{position:"relative"}});
+  const sel = document.createElement("select");
+  Object.assign(sel.style,{width:"100%",background:"#2A2A35",border:`1px solid ${STATE.loja?"#666":"#3a3a48"}`,borderRadius:"10px",padding:"0.65rem 2.5rem 0.65rem 1rem",color:STATE.loja?"#fff":"#888",fontSize:"0.95rem",outline:"none",appearance:"none",cursor:"pointer",boxSizing:"border-box",fontFamily:"'Georgia',serif"});
+  const optDef = document.createElement("option"); optDef.value=""; optDef.disabled=true; optDef.textContent="Escolha a loja...";
+  sel.appendChild(optDef);
+  cfg.lojas.forEach(l=>{ const o=document.createElement("option"); o.value=l; o.textContent=l; if(l===STATE.loja) o.selected=true; sel.appendChild(o); });
+  sel.addEventListener("change",()=>setState({loja:sel.value},true));
+  const chevron = e("div",{style:{position:"absolute",right:"0.9rem",top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:"#888",fontSize:"0.75rem"}},"▼");
+  selectWrap.append(sel,chevron);
+  hdrInner.append(topRow,lojaLabel,selectWrap);
+  hdr.appendChild(hdrInner);
+
+  // ── Progress bar (sticky)
+  const prog = e("div",{style:{background:"#1A1A22",padding:"0.55rem 1.25rem",borderBottom:"1px solid #2a2a35",position:"sticky",top:"0",zIndex:"10"}});
+  const progInner = e("div",{style:{maxWidth:"680px",margin:"0 auto",display:"flex",alignItems:"center",gap:"0.9rem"}});
+  const trackWrap = e("div",{style:{flex:"1",height:"4px",background:"#2A2A35",borderRadius:"2px"}});
+  const trackFill = e("div",{style:{width:`${(totalResp/totalItens)*100}%`,height:"100%",background:"linear-gradient(90deg,#E63946,#6A0572)",borderRadius:"2px",transition:"width 0.3s"}});
+  trackWrap.appendChild(trackFill);
+  const progCount = e("div",{style:{color:"#aaa",fontSize:"0.7rem",whiteSpace:"nowrap"}},`${totalResp}/${totalItens}`);
+  const progPts = e("div",{style:{color:"#fff",fontWeight:"bold",fontSize:"0.82rem",minWidth:"60px",textAlign:"right"}});
+  progPts.innerHTML = `${nota} <span style="color:#555;font-weight:normal">/ ${MAX} pts</span>`;
+  progInner.append(trackWrap,progCount,progPts);
+  prog.appendChild(progInner);
+
+  // ── Body
+  const body = e("div",{style:{maxWidth:"680px",margin:"0 auto",padding:"1.1rem 1rem 2rem"}});
+
+  secs.forEach(sec=>{
+    const sT = secTotal(sec,sc);
+    const sMax = sec.items.length * sec.multiplier;
+    const secDiv = e("div",{style:{marginBottom:"1.1rem"}});
+
+    // Section header
+    const secHdr = e("div",{style:{display:"flex",alignItems:"center",gap:"0.55rem",marginBottom:"0.5rem"}});
+    secHdr.appendChild(e("div",{style:{width:"4px",height:"22px",background:sec.color,borderRadius:"2px"}}));
+    const secTitleBox = e("div",{style:{flex:"1"}});
+    secTitleBox.innerHTML = `<span style="font-weight:bold;color:${sec.color};letter-spacing:0.05em;font-size:0.92rem">${sec.label}</span><span style="color:#666;font-size:0.72rem;margin-left:0.4rem">${sec.subtitle} · ×${sec.multiplier}</span>`;
+    const secPts = e("div",{style:{textAlign:"right",fontSize:"0.85rem"}});
+    secPts.innerHTML = `<span style="color:#fff;font-weight:bold">${sT}</span><span style="color:#444">/${sMax}</span>`;
+    secHdr.append(secTitleBox,secPts);
+
+    // Items
+    const itemsBox = e("div",{style:{background:"#1A1A22",borderRadius:"12px",overflow:"hidden",border:"1px solid #2a2a35"}});
+    sec.items.forEach((item,idx)=>{
+      const isSet = sc[item.id]!==undefined;
+      const row = e("div",{style:{display:"flex",alignItems:"center",padding:"0.78rem 0.9rem",borderBottom:idx<sec.items.length-1?"1px solid #1e1e28":"none",gap:"0.6rem"}});
+      const txt = e("div",{style:{flex:"1",fontSize:"0.82rem",color:isSet?"#ddd":"#999",lineHeight:"1.4"}},item.text);
+      const btns = e("div",{style:{display:"flex",gap:"0.3rem",flexShrink:"0"}});
+      [0,1].forEach(v=>{
+        const isActive = sc[item.id]===v;
+        const btn = e("button",{
+          class:"btn-score",
+          style:{
+            background: isActive ? (v===1?sec.color:"#C0392B") : "#2A2A35",
+            color: isActive?"#fff":"#555",
+            transform: isActive?"scale(1.08)":"scale(1)",
+          },
+          onClick:()=>{
+            const n = {...STATE.scores};
+            if(n[item.id]===v) delete n[item.id]; else n[item.id]=v;
+            setState({scores:n});
+          }
+        }, String(v));
+        btns.appendChild(btn);
+      });
+      row.append(txt,btns);
+      itemsBox.appendChild(row);
+    });
+
+    // Section progress bar
+    const secProg = e("div",{style:{height:"3px",background:"#2A2A35",borderRadius:"2px",marginTop:"4px"}});
+    const secProgFill = e("div",{style:{width:`${sMax>0?(sT/sMax)*100:0}%`,height:"100%",background:sec.color,borderRadius:"2px",transition:"width 0.3s"}});
+    secProg.appendChild(secProgFill);
+
+    secDiv.append(secHdr,itemsBox,secProg);
+    body.appendChild(secDiv);
+  });
+
+  // ── Reincidência
+  const reinDiv = e("div",{style:{background:"#1A1A22",borderRadius:"12px",padding:"0.85rem 1rem",border:"1px solid #2a2a35",marginBottom:"1.1rem"}});
+  const reinRow = e("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"1rem"}});
+  const reinTxt = e("div");
+  reinTxt.innerHTML = `<div style="font-size:0.82rem;color:#ddd;margin-bottom:0.1rem">Houve reincidência em algum ponto negativo?</div><div style="font-size:0.68rem;color:#F4A261">Se SIM, desconta ${cfg.penaltyPoints} pontos da nota final</div>`;
+  const reinBtn = e("button",{
+    class:"pill-btn",
+    style:{flexShrink:"0",padding:"0.4rem 1rem",borderRadius:"8px",fontWeight:"bold",fontSize:"0.82rem",background:STATE.reincidencia?"#F4A261":"#2A2A35",color:STATE.reincidencia?"#0F0F13":"#777"},
+    onClick:()=>setState({reincidencia:!STATE.reincidencia})
+  }, STATE.reincidencia?"SIM":"NÃO");
+  reinRow.append(reinTxt,reinBtn);
+  reinDiv.appendChild(reinRow);
+  body.appendChild(reinDiv);
+
+  // ── Observações
+  const obsDiv = e("div",{style:{marginBottom:"1.1rem"}});
+  obsDiv.appendChild(e("label",{style:{fontSize:"0.6rem",color:"#888",letterSpacing:"0.15em",display:"block",marginBottom:"0.35rem"}},"OBSERVAÇÕES"));
+  const ta = document.createElement("textarea");
+  Object.assign(ta.style,{width:"100%",background:"#1A1A22",border:"1px solid #2a2a35",borderRadius:"11px",padding:"0.65rem 0.9rem",color:"#ddd",fontSize:"0.85rem",resize:"vertical",outline:"none",fontFamily:"'Georgia',serif",boxSizing:"border-box"});
+  ta.rows=3; ta.placeholder="Registre observações adicionais..."; ta.value=STATE.observacoes;
+  ta.addEventListener("input",()=>{ STATE.observacoes=ta.value; },false);
+  obsDiv.appendChild(ta);
+  body.appendChild(obsDiv);
+
+  // ── Nota preview
+  const notaDiv = e("div",{style:{background:"#1A1A22",borderRadius:"14px",padding:"1.1rem",marginBottom:"1.1rem",border:`2px solid ${grade.color}`,textAlign:"center"}});
+  notaDiv.innerHTML = `
+    <div style="color:#555;font-size:0.6rem;letter-spacing:0.2em;margin-bottom:0.35rem">NOTA FINAL</div>
+    <div style="display:flex;align-items:baseline;justify-content:center;gap:0.4rem">
+      <span style="font-size:3rem;font-weight:bold;color:${grade.color};line-height:1">${nota}</span>
+      <span style="color:#444;font-size:1rem">/ ${MAX} pts</span>
+    </div>
+    ${STATE.reincidencia?`<div style="color:#F4A261;font-size:0.7rem;margin:0.2rem 0 0.3rem">${totalBruto(secs,sc)} pts − ${cfg.penaltyPoints} pts reincidência = ${nota}</div>`:""}
+    <div style="color:${grade.color};letter-spacing:0.12em;font-weight:bold;font-size:0.88rem;margin-top:0.2rem">
+      ${grade.label} <span style="color:#555;font-weight:normal;font-size:0.75rem">(${grade.pct}%)</span>
+    </div>`;
+  body.appendChild(notaDiv);
+
+  // ── Submit button
+  const canSubmit = STATE.loja && !STATE.saving;
+  const submitBtn = e("button",{
+    class:"pill-btn",
+    style:{width:"100%",padding:"0.95rem",borderRadius:"13px",fontWeight:"bold",fontSize:"1rem",letterSpacing:"0.08em",background:canSubmit?"linear-gradient(135deg,#E63946,#6A0572)":"#2A2A35",color:canSubmit?"#fff":"#555",cursor:canSubmit?"pointer":"not-allowed"},
+    onClick: canSubmit ? handleSubmit : null
+  }, STATE.saving?"Salvando..." : !STATE.loja?"Selecione a loja para enviar" : "✓  Finalizar Auditoria");
+  body.appendChild(submitBtn);
+
+  wrap.append(hdr,prog,body);
+  return wrap;
+}
+
+// ─── SUBMIT HANDLER ─────────────────────────────────────
+async function handleSubmit(){
+  if(!STATE.loja||STATE.saving) return;
+  setState({saving:true});
+
+  const cfg   = STATE.config;
+  const secs  = cfg.sections;
+  const sc    = STATE.scores;
+  const MAX   = calcMax(secs);
+  const now   = new Date();
+  const ts    = fmtTs(now);
+  const id    = `AUD-${now.getFullYear()}${p2(now.getMonth()+1)}${p2(now.getDate())}-${p2(now.getHours())}${p2(now.getMinutes())}`;
+  const reinc = STATE.reincidencia;
+  const pen   = cfg.penaltyPoints;
+  const secData = secs.map(s=>{ const vals=s.items.map(i=>sc[i.id]??0); return {vals, total: vals.reduce((a,b)=>a+b,0)*s.multiplier}; });
+  const brutos  = secData.reduce((a,s)=>a+s.total,0);
+  const nota    = Math.max(0, reinc ? brutos-pen : brutos);
+  const g       = getGrade(nota, MAX);
+
+  // Save to Google Sheets if configured
+  let saveErr = null;
+  if(cfg.sheetId && cfg.sheetId.length > 10){
+    try{
+      const rowData = [id,ts,STATE.loja,cfg.auditor,
+        ...secData.flatMap(s=>[...s.vals,s.total]),
+        brutos, reinc?"SIM":"NÃO", nota, MAX, g.label, STATE.observacoes];
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${cfg.sheetId}/values/Auditorias!A:AM:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+      const res = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({values:[rowData]})});
+      if(!res.ok) throw new Error();
+    } catch{ saveErr="Não foi possível salvar no Google Sheets."; }
+  }
+
+  // Save to local history
+  const entry = {id,ts,loja:STATE.loja,auditor:cfg.auditor,brutos,notaCalc:nota,maxPts:MAX,grade:g.label,reincidencia:reinc,observacoes:STATE.observacoes,scores:{...sc}};
+  const newHist = [entry,...STATE.history].slice(0,100);
+  store.set("history",newHist);
+
+  setState({
+    saving:false,
+    history:newHist,
+    result:{ts,loja:STATE.loja,notaCalc:nota,maxPts:MAX,grade:g,sections:secs,scores:{...sc},reincidencia:reinc,observacoes:STATE.observacoes,saveErr,penalty:pen,brutos},
+    screen:"result"
+  });
+}
+
+// ─── RESULT SCREEN ──────────────────────────────────────
+function buildResult(){
+  const r = STATE.result;
+  const {grade:g, notaCalc, maxPts} = r;
+  const wrap = e("div",{class:"screen fade-in",style:{fontFamily:"'Georgia',serif",color:"#fff"}});
+  const inner = e("div",{style:{maxWidth:"540px",margin:"0 auto",padding:"2rem 1rem",textAlign:"center"}});
+
+  inner.appendChild(e("div",{style:{fontSize:"3rem",marginBottom:"0.3rem"}},"✓"));
+  inner.appendChild(e("h1",{style:{fontSize:"1.7rem",margin:"0 0 0.2rem",letterSpacing:"0.05em"}},"Auditoria Enviada"));
+  inner.appendChild(e("p",{style:{color:"#aaa",margin:"0 0 0.1rem",fontSize:"0.88rem"}},`${r.loja} · ${STATE.config.auditor}`));
+  inner.appendChild(e("p",{style:{color:"#555",margin:"0 0 1.5rem",fontSize:"0.75rem",fontStyle:"italic"}},`🕐 ${r.ts}`));
+
+  if(r.saveErr){
+    const errBox = e("div",{style:{background:"#1E1208",border:"1px solid #F4A261",borderRadius:"10px",padding:"0.65rem 1rem",marginBottom:"1rem",fontSize:"0.78rem",color:"#F4A261"}},`⚠ ${r.saveErr}`);
+    inner.appendChild(errBox);
+  }
+
+  const card = e("div",{style:{background:"#1A1A22",borderRadius:"20px",padding:"1.75rem",marginBottom:"1.25rem",border:`3px solid ${g.color}`,textAlign:"center"}});
+  card.innerHTML = `
+    <div style="font-size:0.62rem;color:#666;letter-spacing:0.2em;margin-bottom:0.5rem">NOTA FINAL</div>
+    <div style="font-size:3.5rem;font-weight:bold;color:${g.color};line-height:1">${notaCalc}</div>
+    <div style="color:#555;font-size:0.85rem;margin:0.25rem 0 0.5rem">de ${maxPts} pontos</div>
+    <div style="color:${g.color};font-size:1rem;font-weight:bold;letter-spacing:0.15em">
+      ${g.label} <span style="color:#555;font-weight:normal;font-size:0.78rem">(${g.pct}%)</span>
+    </div>
+    ${r.reincidencia?`<div style="color:#F4A261;font-size:0.75rem;margin-top:0.5rem">⚠ −${r.penalty} pts por reincidência aplicado</div>`:""}`;
+  inner.appendChild(card);
+
+  r.sections.forEach(sec=>{
+    const tot = sec.items.reduce((a,item)=>a+(r.scores[item.id]??0)*sec.multiplier,0);
+    const max = sec.items.length*sec.multiplier;
+    const row = e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0.65rem 1rem",background:"#1A1A22",borderRadius:"10px",marginBottom:"0.4rem"}});
+    row.innerHTML = `
+      <span style="color:${sec.color};font-weight:bold;font-size:0.82rem">${sec.label}</span>
+      <div style="display:flex;align-items:center;gap:0.65rem">
+        <div style="width:90px;height:5px;background:#2A2A35;border-radius:3px">
+          <div style="width:${max>0?(tot/max)*100:0}%;height:100%;background:${sec.color};border-radius:3px"></div>
+        </div>
+        <span style="color:#aaa;font-size:0.78rem;min-width:52px;text-align:right">${tot}/${max} pts</span>
+      </div>`;
+    inner.appendChild(row);
+  });
+
+  if(r.observacoes){
+    const obsBox = e("div",{style:{background:"#1A1A22",borderRadius:"10px",padding:"0.85rem 1rem",marginTop:"0.5rem",textAlign:"left"}});
+    obsBox.innerHTML = `<div style="color:#666;font-size:0.62rem;letter-spacing:0.1em;margin-bottom:0.2rem">OBSERVAÇÕES</div><div style="color:#ccc;font-size:0.85rem">${r.observacoes}</div>`;
+    inner.appendChild(obsBox);
+  }
+
+  const btns = e("div",{style:{display:"flex",gap:"0.75rem",marginTop:"1.5rem"}});
+  btns.appendChild(e("button",{class:"pill-btn",style:{flex:"1",padding:"0.7rem",background:"#1A1A22",color:"#aaa",border:"1px solid #2a2a35",borderRadius:"12px",fontSize:"0.85rem"},onClick:()=>setState({screen:"history"})},"📋 Histórico"));
+  btns.appendChild(e("button",{class:"pill-btn",style:{flex:"2",padding:"0.7rem",background:"#fff",color:"#0F0F13",borderRadius:"12px",fontWeight:"bold",fontSize:"0.9rem"},onClick:()=>setState({screen:"audit",scores:{},loja:"",reincidencia:false,observacoes:"",result:null})},"Nova Auditoria"));
+  inner.appendChild(btns);
+
+  wrap.appendChild(inner);
+  return wrap;
+}
+
+// ─── HISTORY SCREEN ─────────────────────────────────────
+function buildHistory(){
+  const MAX = calcMax(STATE.config.sections);
+  const wrap = e("div",{class:"screen fade-in"});
+  const inner = e("div",{style:{maxWidth:"640px",margin:"0 auto",padding:"1.5rem 1rem"}});
+
+  const hdr = e("div",{style:{display:"flex",alignItems:"center",gap:"0.75rem",marginBottom:"1.5rem"}});
+  hdr.appendChild(e("button",{style:{background:"none",border:"none",color:"#888",cursor:"pointer",fontSize:"1.2rem"},onClick:()=>setState({screen:"audit"})},"←"));
+  hdr.appendChild(e("h2",{style:{margin:"0",fontSize:"1.2rem",letterSpacing:"0.06em"}},"Histórico de Auditorias"));
+  if(STATE.history.length>0){
+    const del = e("button",{style:{marginLeft:"auto",background:"none",border:"1px solid #3a2a2a",color:"#E63946",cursor:"pointer",padding:"0.3rem 0.7rem",borderRadius:"6px",fontSize:"0.72rem"},
+      onClick:()=>{ if(confirm("Apagar todo o histórico?")){ store.set("history",[]); setState({history:[]}); } }},"Apagar tudo");
+    hdr.appendChild(del);
+  }
+  inner.appendChild(hdr);
+
+  if(STATE.history.length===0){
+    inner.appendChild(e("div",{style:{textAlign:"center",color:"#555",padding:"3rem 0"}},"Nenhuma auditoria registrada ainda."));
+  } else {
+    STATE.history.forEach(h=>{
+      const g = getGrade(h.notaCalc, h.maxPts||MAX);
+      const card = e("div",{style:{background:"#1A1A22",borderRadius:"13px",padding:"1rem",marginBottom:"0.75rem",borderLeft:`4px solid ${g.color}`}});
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <div style="font-weight:bold;font-size:0.95rem;margin-bottom:0.1rem">${h.loja}</div>
+            <div style="color:#666;font-size:0.72rem">${h.ts} · ${h.auditor}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="color:${g.color};font-weight:bold;font-size:1.2rem;line-height:1">${h.notaCalc} <span style="color:#444;font-weight:normal;font-size:0.75rem">pts</span></div>
+            <div style="color:#555;font-size:0.7rem">de ${h.maxPts||MAX} · ${g.pct}%</div>
+            <div style="color:${g.color};font-size:0.7rem;font-weight:bold;letter-spacing:0.1em">${h.grade}</div>
+          </div>
+        </div>
+        ${h.reincidencia?`<div style="color:#F4A261;font-size:0.7rem;margin-top:0.4rem">⚠ Reincidência aplicada</div>`:""}
+        ${h.observacoes?`<div style="color:#888;font-size:0.75rem;margin-top:0.4rem;font-style:italic">"${h.observacoes}"</div>`:""}`;
+      inner.appendChild(card);
+    });
+  }
+
+  wrap.appendChild(inner);
+  return wrap;
+}
+
+// ─── CONFIG SCREEN ──────────────────────────────────────
+function buildConfig(){
+  const cfg = STATE.cfgDraft || JSON.parse(JSON.stringify(STATE.config));
+  const wrap = e("div",{class:"screen fade-in"});
+  const inner = e("div",{style:{maxWidth:"680px",margin:"0 auto",padding:"1.25rem 1rem 2rem"}});
+
+  // Header
+  const hdr = e("div",{style:{display:"flex",alignItems:"center",gap:"0.75rem",marginBottom:"1.5rem"}});
+  hdr.appendChild(e("button",{style:{background:"none",border:"none",color:"#888",cursor:"pointer",fontSize:"1.2rem"},onClick:()=>setState({screen:"audit"})},"←"));
+  hdr.appendChild(e("h2",{style:{margin:"0",fontSize:"1.2rem",letterSpacing:"0.06em"}},"⚙️ Configurações"));
+  const saveBtn = e("button",{style:{marginLeft:"auto",padding:"0.5rem 1.2rem",background:STATE.cfgSaved?"#2A9D8F":"#fff",color:"#0F0F13",border:"none",borderRadius:"10px",fontWeight:"bold",cursor:"pointer",fontSize:"0.85rem",transition:"background 0.3s"},
+    onClick:async()=>{
+      const newCfg = STATE.cfgDraft;
+      store.set("config",newCfg);
+      setState({config:newCfg,cfgSaved:true},true);
+      saveBtn.textContent="✓ Salvo!";
+      saveBtn.style.background="#2A9D8F";
+      setTimeout(()=>{ saveBtn.textContent="Salvar"; saveBtn.style.background="#fff"; setState({cfgSaved:false},true); },1500);
+    }},STATE.cfgSaved?"✓ Salvo!":"Salvar");
+  hdr.appendChild(saveBtn);
+  inner.appendChild(hdr);
+
+  // Tabs
+  const tabs = e("div",{style:{display:"flex",gap:"0.5rem",marginBottom:"1.5rem"}});
+  ["geral","lojas","seções"].forEach(t=>{
+    const active = STATE.configTab===t;
+    const btn = e("button",{style:{padding:"0.5rem 1rem",borderRadius:"8px",border:"none",cursor:"pointer",fontSize:"0.78rem",fontWeight:"bold",letterSpacing:"0.05em",background:active?"#fff":"#2A2A35",color:active?"#0F0F13":"#888"},
+      onClick:()=>{ STATE.configTab=t; buildConfigContent(content,cfg); }},t.toUpperCase());
+    tabs.appendChild(btn);
+  });
+  inner.appendChild(tabs);
+
+  const content = e("div");
+  buildConfigContent(content,cfg);
+  inner.appendChild(content);
+  wrap.appendChild(inner);
+  return wrap;
+}
+
+function buildConfigContent(container, cfg){
+  container.innerHTML="";
+  const t = STATE.configTab;
+
+  if(t==="geral"){
+    const fields = [
+      {label:"NOME DO AUDITOR",key:"auditor",type:"text"},
+      {label:"SHEET ID (Google Sheets)",key:"sheetId",type:"text"},
+      {label:"DESCONTO POR REINCIDÊNCIA (pontos)",key:"penaltyPoints",type:"number"},
+    ];
+    fields.forEach(f=>{
+      const div = e("div",{style:{marginBottom:"1rem"}});
+      div.appendChild(e("label",{style:{fontSize:"0.6rem",color:"#888",letterSpacing:"0.15em",display:"block",marginBottom:"0.35rem"}},f.label));
+      const inp = input({type:f.type,value:String(cfg[f.key]),style:{width:"100%",background:"#1A1A22",border:"1px solid #2a2a35",borderRadius:"9px",padding:"0.65rem 0.9rem",color:"#fff",fontSize:"0.9rem",outline:"none",boxSizing:"border-box"}});
+      inp.addEventListener("input",()=>{ cfg[f.key]=f.type==="number"?Number(inp.value):inp.value; STATE.cfgDraft=cfg; });
+      div.appendChild(inp);
+      container.appendChild(div);
+    });
+    const info = e("div",{style:{background:"#111118",borderRadius:"10px",padding:"0.9rem 1rem",fontSize:"0.78rem",color:"#666",lineHeight:"1.6"}});
+    info.innerHTML = `<strong style="color:#aaa">Pontuação máxima atual:</strong> ${calcMax(cfg.sections)} pts<br/><strong style="color:#aaa">Reincidência:</strong> desconta ${cfg.penaltyPoints} pontos fixos da nota final<br/><strong style="color:#aaa">Classificação:</strong> ≥90% Excelente · ≥70% Bom · ≥50% Regular · &lt;50% Crítico`;
+    container.appendChild(info);
+  }
+
+  if(t==="lojas"){
+    cfg.lojas.forEach((loja,i)=>{
+      const row = e("div",{style:{display:"flex",gap:"0.5rem",marginBottom:"0.5rem"}});
+      const inp = input({value:loja,style:{flex:"1",background:"#1A1A22",border:"1px solid #2a2a35",borderRadius:"9px",padding:"0.6rem 0.9rem",color:"#fff",fontSize:"0.9rem",outline:"none"}});
+      inp.addEventListener("input",()=>{ cfg.lojas[i]=inp.value.toUpperCase(); inp.value=cfg.lojas[i]; STATE.cfgDraft=cfg; });
+      const del = e("button",{style:{background:"#2a1a1a",border:"1px solid #3a2a2a",color:"#E63946",borderRadius:"9px",width:"40px",cursor:"pointer",fontSize:"1rem"},
+        onClick:()=>{ cfg.lojas.splice(i,1); STATE.cfgDraft=cfg; buildConfigContent(container,cfg); }},"×");
+      row.append(inp,del);
+      container.appendChild(row);
+    });
+    const addBtn = e("button",{style:{width:"100%",marginTop:"0.5rem",padding:"0.6rem",background:"#1A1A22",border:"1px dashed #3a3a48",borderRadius:"9px",color:"#888",cursor:"pointer",fontSize:"0.85rem"},
+      onClick:()=>{ cfg.lojas.push("NOVA LOJA"); STATE.cfgDraft=cfg; buildConfigContent(container,cfg); }},"+ Adicionar loja");
+    container.appendChild(addBtn);
+  }
+
+  if(t==="seções"){
+    cfg.sections.forEach((sec,si)=>{
+      const secBox = e("div",{style:{background:"#1A1A22",borderRadius:"12px",padding:"1rem",marginBottom:"1rem",borderLeft:`4px solid ${sec.color}`}});
+      const secHdr = e("div",{style:{display:"flex",gap:"0.5rem",marginBottom:"0.75rem",alignItems:"center"}});
+      const labelInp = input({value:sec.label,style:{flex:"1",background:"#2A2A35",border:"1px solid #3a3a48",borderRadius:"7px",padding:"0.4rem 0.6rem",color:sec.color,fontSize:"0.85rem",fontWeight:"bold",outline:"none"}});
+      labelInp.addEventListener("input",()=>{ sec.label=labelInp.value; STATE.cfgDraft=cfg; });
+      const multBox = e("div",{style:{display:"flex",alignItems:"center",gap:"0.3rem"}});
+      multBox.appendChild(e("span",{style:{color:"#666",fontSize:"0.72rem"}},"×"));
+      const multInp = input({type:"number",value:String(sec.multiplier),style:{width:"50px",background:"#2A2A35",border:"1px solid #3a3a48",borderRadius:"7px",padding:"0.4rem 0.5rem",color:"#fff",fontSize:"0.85rem",outline:"none",textAlign:"center"}});
+      multInp.min="1"; multInp.max="20";
+      multInp.addEventListener("input",()=>{ sec.multiplier=Number(multInp.value)||1; STATE.cfgDraft=cfg; });
+      multBox.appendChild(multInp);
+      secHdr.append(labelInp,multBox);
+      secBox.appendChild(secHdr);
+
+      sec.items.forEach((item,ii)=>{
+        const row = e("div",{style:{display:"flex",gap:"0.4rem",marginBottom:"0.4rem"}});
+        const itemInp = input({value:item.text,style:{flex:"1",background:"#2A2A35",border:"1px solid #2a2a35",borderRadius:"7px",padding:"0.4rem 0.6rem",color:"#ddd",fontSize:"0.78rem",outline:"none"}});
+        itemInp.addEventListener("input",()=>{ item.text=itemInp.value; STATE.cfgDraft=cfg; });
+        const del = e("button",{style:{background:"#2a1a1a",border:"none",color:"#E63946",borderRadius:"7px",width:"32px",cursor:"pointer",fontSize:"0.9rem",flexShrink:"0"},
+          onClick:()=>{ sec.items.splice(ii,1); STATE.cfgDraft=cfg; buildConfigContent(container,cfg); }},"×");
+        row.append(itemInp,del);
+        secBox.appendChild(row);
+      });
+
+      const addQ = e("button",{style:{width:"100%",marginTop:"0.3rem",padding:"0.4rem",background:"transparent",border:"1px dashed #3a3a48",borderRadius:"7px",color:"#777",cursor:"pointer",fontSize:"0.75rem"},
+        onClick:()=>{ sec.items.push({id:`${sec.id}_q${Date.now()}`,text:"Nova questão"}); STATE.cfgDraft=cfg; buildConfigContent(container,cfg); }},"+ Questão");
+      secBox.appendChild(addQ);
+      container.appendChild(secBox);
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+async function init(){
+  render(); // show loading
+
+  // Load config
+  const savedCfg = store.get("config");
+  const cfg = savedCfg || DEFAULT_CONFIG;
+  if(!savedCfg) store.set("config", DEFAULT_CONFIG);
+
+  // Load history
+  const hist = store.get("history") || [];
+
+  setState({screen:"audit", config:cfg, history:hist, cfgDraft:JSON.parse(JSON.stringify(cfg))});
+
+  // Register service worker
+  if("serviceWorker" in navigator){
+    navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  }
+}
+
+// Handle Android back button
+window.addEventListener("popstate", ()=>{
+  if(STATE.screen!=="audit") setState({screen:"audit"});
+});
+
+init();
+</script>
+</body>
+</html>

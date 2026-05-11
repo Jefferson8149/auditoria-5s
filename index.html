@@ -364,18 +364,21 @@ async function handleSubmit(){
   const nota    = Math.max(0, reinc ? brutos-pen : brutos);
   const g       = getGrade(nota, MAX);
 
-  // Save to Google Sheets if configured
+  // Save to Google Sheets via Apps Script
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzUkISxHd0t_OJQ535IKuKlKUrlZ9IP_A2P_j5ipmgv1r5wxVYpSrRGg_990l9akj52/exec";
   let saveErr = null;
-  if(cfg.sheetId && cfg.sheetId.length > 10){
-    try{
-      const rowData = [id,ts,STATE.loja,cfg.auditor,
-        ...secData.flatMap(s=>[...s.vals,s.total]),
-        brutos, reinc?"SIM":"NÃO", nota, MAX, g.label, STATE.observacoes];
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${cfg.sheetId}/values/Auditorias!A:AM:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
-      const res = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({values:[rowData]})});
-      if(!res.ok) throw new Error();
-    } catch{ saveErr="Não foi possível salvar no Google Sheets."; }
-  }
+  try{
+    const rowData = [id,ts,STATE.loja,cfg.auditor,
+      ...secData.flatMap(s=>[...s.vals,s.total]),
+      brutos, reinc?"SIM":"NÃO", nota, MAX, g.label, STATE.observacoes];
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method:"POST",
+      headers:{"Content-Type":"text/plain"},
+      body: JSON.stringify({row: rowData})
+    });
+    const json = await res.json();
+    if(!json.ok) throw new Error(json.error||"erro");
+  } catch(err){ saveErr="Salvo localmente. Verifique conexão com a planilha."; }
 
   // Save to local history
   const entry = {id,ts,loja:STATE.loja,auditor:cfg.auditor,brutos,notaCalc:nota,maxPts:MAX,grade:g.label,reincidencia:reinc,observacoes:STATE.observacoes,scores:{...sc}};
@@ -538,7 +541,6 @@ function buildConfigContent(container, cfg){
   if(t==="geral"){
     const fields = [
       {label:"NOME DO AUDITOR",key:"auditor",type:"text"},
-      {label:"SHEET ID (Google Sheets)",key:"sheetId",type:"text"},
       {label:"DESCONTO POR REINCIDÊNCIA (pontos)",key:"penaltyPoints",type:"number"},
     ];
     fields.forEach(f=>{

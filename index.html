@@ -212,7 +212,7 @@ function buildAudit(){
   const btnHist = e("button",{style:{background:"#2A2A35",border:"none",color:"#aaa",cursor:"pointer",borderRadius:"8px",width:"36px",height:"36px",fontSize:"1rem",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>setState({screen:"history"})},"📋");
   const btnCfg  = e("button",{style:{background:"#2A2A35",border:"none",color:"#aaa",cursor:"pointer",borderRadius:"8px",width:"36px",height:"36px",fontSize:"1rem",display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>setState({screen:"config",cfgDraft:JSON.parse(JSON.stringify(cfg)),configTab:"geral"})},"⚙️");
 
-  topRow.append(bar,titleBox,btnHist,btnCfg);
+  topRow.append(logoImg,titleBox,btnHist,btnCfg);
 
   // Loja select
   const lojaLabel = e("label",{style:{fontSize:"0.6rem",color:"#888",letterSpacing:"0.15em",display:"block",marginBottom:"0.35rem"}},"SELECIONE A LOJA");

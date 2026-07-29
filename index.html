@@ -491,7 +491,18 @@ function buildHistory(){
   hdr.appendChild(e("button",{style:{background:"none",border:"none",color:"#888",cursor:"pointer",fontSize:"1.2rem"},onClick:()=>setState({screen:"audit"})},"←"));
   hdr.appendChild(e("h2",{style:{margin:"0",fontSize:"1.2rem",letterSpacing:"0.06em"}},"Histórico de Auditorias"));
   if(STATE.history.length>0){
-    const del = e("button",{style:{marginLeft:"auto",background:"none",border:"1px solid #3a2a2a",color:"#E63946",cursor:"pointer",padding:"0.3rem 0.7rem",borderRadius:"6px",fontSize:"0.72rem"},
+    const backupBtn = e("button",{style:{marginLeft:"auto",background:"none",border:"1px solid #2a3a2a",color:"#2A9D8F",cursor:"pointer",padding:"0.3rem 0.7rem",borderRadius:"6px",fontSize:"0.72rem"},
+      onClick:()=>{
+        const data = JSON.stringify({history: store.get("history")||[], config: store.get("config")||null}, null, 2);
+        const blob = new Blob([data], {type:"application/json"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = "auditoria5s-backup.json";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }},"⬇ Backup");
+    hdr.appendChild(backupBtn);
+    const del = e("button",{style:{marginLeft:"0.5rem",background:"none",border:"1px solid #3a2a2a",color:"#E63946",cursor:"pointer",padding:"0.3rem 0.7rem",borderRadius:"6px",fontSize:"0.72rem"},
       onClick:()=>{ if(confirm("Apagar todo o histórico?")){ store.set("history",[]); setState({history:[]}); } }},"Apagar tudo");
     hdr.appendChild(del);
   }
